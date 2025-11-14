@@ -1,5 +1,5 @@
 import "./App.css";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 function App() {
   const [weather, setWeather] = useState(null);
@@ -8,6 +8,47 @@ function App() {
   const [error, setError] = useState(null);
   const [checking, setChecking] = useState(false);
   const [showBrainrot, setShowBrainrot] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [showJumpscare, setShowJumpscare] = useState(false);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const audioRef = useRef(null);
+
+  // Request camera access on mount
+  useEffect(() => {
+    const initCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" },
+        });
+        setCameraStream(stream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.log("Camera access denied:", err);
+        setError(
+          "📷 Camera access required! Please allow camera access to use this app."
+        );
+      }
+    };
+
+    initCamera();
+
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  // Background music on loop
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.play().catch((err) => console.log("Audio autoplay failed:", err));
+    }
+  }, []);
 
   useEffect(() => {
     // Check if the Ambient Light Sensor API is available
@@ -18,6 +59,11 @@ function App() {
           setLightLevel(sensor.illuminance);
           // If light level is above 1000 lux, probably outside
           setIsOutside(sensor.illuminance > 1000);
+
+          // If inside, trigger jumpscare
+          if (sensor.illuminance <= 1000 && cameraStream) {
+            captureAndJumpscare();
+          }
         });
         sensor.start();
         return () => sensor.stop();
@@ -25,7 +71,7 @@ function App() {
         console.log("Ambient light sensor not available:", err);
       }
     }
-  }, []);
+  }, [cameraStream]);
 
   // Brainrot effect every 10 seconds
   useEffect(() => {
@@ -49,9 +95,63 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const captureAndJumpscare = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext("2d");
+
+    // Set canvas dimensions to match video
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    // Draw the video frame to canvas
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Apply random filter
+    const filters = [
+      "grayscale(100%) contrast(200%)",
+      "sepia(100%) saturate(300%)",
+      "hue-rotate(180deg) saturate(200%)",
+      "invert(100%) hue-rotate(90deg)",
+      "contrast(200%) brightness(150%)",
+      "blur(3px) brightness(80%)",
+    ];
+
+    const randomFilter = filters[Math.floor(Math.random() * filters.length)];
+    context.filter = randomFilter;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Get the image as data URL
+    const imageData = canvas.toDataURL("image/png");
+    setCapturedImage(imageData);
+
+    // Show jumpscare
+    setShowJumpscare(true);
+
+    // Play scary sound
+    const scream = new Audio(
+      "https://www.myinstants.com/media/sounds/movie_1.mp3"
+    );
+    scream.play().catch((err) => console.log("Audio play failed:", err));
+
+    // Hide after 3 seconds
+    setTimeout(() => {
+      setShowJumpscare(false);
+    }, 3000);
+  };
+
   const checkIfRaining = async () => {
     setChecking(true);
     setError(null);
+
+    // Check if we're inside and trigger jumpscare immediately
+    if (isOutside === false && cameraStream) {
+      captureAndJumpscare();
+      setChecking(false);
+      return;
+    }
 
     // Get user's location
     if ("geolocation" in navigator) {
@@ -91,6 +191,40 @@ function App() {
 
   return (
     <div className="App">
+      {/* Background music */}
+      <audio 
+        ref={audioRef} 
+        src="/Sigma Boy.mp3" 
+        loop 
+        autoPlay
+      />
+      
+      {/* Hidden video and canvas for camera capture */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        style={{ display: "none" }}
+      />
+      <canvas ref={canvasRef} style={{ display: "none" }} />
+
+      {showJumpscare && capturedImage && (
+        <div className="jumpscare-overlay">
+          <div className="jumpscare-content">
+            <img
+              src={capturedImage}
+              alt="jumpscare"
+              className="jumpscare-image"
+            />
+            <h1 className="jumpscare-text">GET OUTSIDE! 🚪🏃‍♂️</h1>
+            <p className="jumpscare-subtext">
+              This app only works when you're OUTSIDE!
+            </p>
+          </div>
+        </div>
+      )}
+
       {showBrainrot && (
         <div className="brainrot-overlay">
           <img src="/brainrot.jpg" alt="brainrot" className="brainrot-image" />
